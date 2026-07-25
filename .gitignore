@@ -1,0 +1,39 @@
+# Build output
+*.o
+*.d
+*.elf
+*.bin
+*.iso
+*.img
+build/
+bin/
+obj/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# QEMU / debugging
+qemu.log
+*.log
+
+# Toolchain (never commit the cross-compiler)
+toolchain/
+cross/
+limine/
+
+# Editor / OS cruft
+.DS_Store
+*.swp
+*.swo
+*.un~
+Session.vim
+.netrwhist
+tags
+.nvim.lua
+.lazy.lua
+
+# Claude Code local settings
+.claude/settings.local.json
