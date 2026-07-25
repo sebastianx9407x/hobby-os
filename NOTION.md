@@ -2,8 +2,22 @@
 
 ## Status
 
-NOT yet connected. Set up the Notion MCP server in Claude Code when ready
-(standard MCP config — follow Notion's MCP docs). Do not connect until I say so.
+CONNECTED (2026-07-25) via the Notion MCP server, workspace "My Notion".
+
+## Where it lives
+
+- **Hobby OS** (parent page) — https://app.notion.com/p/3a845e1f36a981fa9a1ef0b91527abbc
+  - **Kernel Tasks** (database) — https://app.notion.com/p/95652f8636584173a2c33e8cf2d81b43
+    - Views: `Board` (Kanban, grouped by Status) and `By milestone` (table, grouped by Milestone)
+  - **Reading log** — https://app.notion.com/p/3a845e1f36a9818ea1c4d7ea8c968c84
+  - **Bug graveyard** — https://app.notion.com/p/3a845e1f36a981c1b094efa138e7eef7
+
+Schema: Name, Status (Backlog/Reading/Building/Blocked/Done), Type
+(Reading/Implementation/Debugging), Milestone (1–6), Resource (URL),
+Notes (text), Parent item ↔ Sub-items (self-relation).
+
+All six milestones exist as parent items. Milestones 1 and 2 are broken into
+sub-items; 3–6 are stubs to fill in when they get close.
 
 ## Division of responsibility
 

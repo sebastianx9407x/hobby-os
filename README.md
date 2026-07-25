@@ -79,4 +79,4 @@ docs/          notes, references
 
 ## License
 
-Not yet chosen.
+MIT — see [LICENSE](LICENSE).

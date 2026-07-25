@@ -10,8 +10,7 @@
 ## Repo basics
 
 - This is my personal hobby OS kernel (C++20/23, x86_64, Limine).
-- License: my choice (MIT is a fine default for a hobby project) — ask me
-  before adding one, don't assume.
+- License: MIT (added 2026-07-25). Settled — don't re-ask.
 
 ## Commits
 
