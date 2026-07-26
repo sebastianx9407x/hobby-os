@@ -1,0 +1,13 @@
+# clangd doesn't understand the x86_64-elf cross flags and will otherwise
+# light up every kernel file with bogus errors.
+CompileFlags:
+  Remove:
+    - -mcmodel=*
+    - -mno-*
+    - -fno-stack-check
+  Add:
+    - --target=x86_64-elf
+    - -ffreestanding
+
+Diagnostics:
+  UnusedIncludes: Strict
