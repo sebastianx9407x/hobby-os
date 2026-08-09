@@ -8,8 +8,11 @@
  *   https://wiki.osdev.org/Limine_Bare_Bones   (its linker.ld is the model)
  */
 
+/* Tell the linker that we want an x86_64 ELF64 output file */
 OUTPUT_FORMAT(elf64-x86-64)
-ENTRY(/* TODO: entry symbol — whatever your boot.S / main exports */)
+
+/* We want the symbol kmain to be our entry point */
+ENTRY(kmain)
 
 PHDRS
 {
@@ -20,11 +23,17 @@ PHDRS
      * You may also need a PT_NOTE-style entry depending on how you hand
      * Limine its requests — check what protocol revision you're targeting.
      */
+    /* Define the program headers we want so the bootloader gives us the right */
+    /* MMU permissions; this also allows us to exert more control over the linking */
+    /* process. */
+    limine_requests PT_LOAD;
+    text PT_LOAD;
+    rodata PT_LOAD;
+    data PT_LOAD;
 }
-
 SECTIONS
 {
-    /* TODO: the base address.
+    /* the base address.
      *
      * -mcmodel=kernel means the kernel must live in the TOP 2 GB of the
      * address space. The conventional choice is 0xffffffff80000000. If this
@@ -32,19 +41,37 @@ SECTIONS
      * errors at link time — or, worse, a kernel that loads and immediately
      * triple-faults.
      */
-    . = /* TODO */ ;
+    . = 0xffffffff80000000;
 
-    /* TODO: .text — code. Assign it to your executable PHDR. */
+    /* Move to the next memory page for .text */
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
 
-    /* TODO: .rodata — read-only data.
-     *
+    /* .text — code. Assign it to your executable PHDR. */
+    .text : {
+        *(.text .text.*)
+    } :text
+
+    /* Move to the next memory page for .rodata */
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
+
+    /* .rodata — read-only data.
      * Your Limine request structures usually want to be somewhere the
      * bootloader will actually scan, and the requests must survive whatever
      * the linker does with unreferenced data. Look into KEEP() and
      * .requests / .requests_start_marker sections here.
      */
 
-    /* TODO: .data */
+    .rodata : {
+        *(.rodata .rodata.*)
+    } :rodata
+
+
+    /* .data */
+    . = ALIGN(CONSTANT(MAXPAGESIZE));
+
+    .data : {
+        *(.data .data.*)
+    } :data
 
     /* TODO: .init_array — the array of global-constructor pointers.
      *
@@ -54,13 +81,19 @@ SECTIONS
      * KEEP() are used in real scripts.
      */
 
-    /* TODO: .bss — zero-initialised. NOLOAD. You need start/end symbols so
-     * early boot code can zero it before any C++ runs. */
+    /* .bss — zero-initialised. */
+    /* NOTE: .bss needs to be the last thing mapped to :data, otherwise lots of */
+    /* unnecessary zeros will be written to the binary. */
+    /* If you need, for example, .init_array and .fini_array, those should be placed */
+    /* above this. */
+    .bss : {
+        *(.bss .bss.*)
+        *(COMMON)
+    } :data
 
+    /* Discard .note.* and .eh_frame* since they may cause issues on some hosts. */
     /DISCARD/ : {
-        /* TODO: discard what you don't want — .comment, .eh_frame, .note.*
-         * Careful: dropping .eh_frame is fine with -fno-exceptions, but be
-         * deliberate about it rather than cargo-culting.
-         */
+        *(.eh_frame*)
+        *(.note .note.*)
     }
 }
