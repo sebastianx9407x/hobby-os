@@ -5,13 +5,13 @@ set_target_properties(kernel PROPERTIES OUTPUT_NAME kernel.elf)
 # ---------------------------------------------------------------------------
 # Sources
 # ---------------------------------------------------------------------------
-# TODO: add files as you write them. Listed explicitly on purpose — GLOB doesn't
-# re-run when you add a file.
 target_sources(
   kernel
   PRIVATE main.cpp
-          # arch/x86_64/gdt.cpp arch/x86_64/serial.cpp arch/x86_64/panic.cpp
-          # arch/x86_64/boot.S
+          # arch/x86_64/gdt.cpp
+          arch/x86_64/serial.cpp
+          arch/x86_64/io.h
+          # arch/x86_64/panic.cpp arch/x86_64/boot.S
 )
 
 target_include_directories(
