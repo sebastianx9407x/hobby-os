@@ -8,8 +8,14 @@ them — and, along the way, to hand-roll a small container/utility library
 (`Vector`, `String`, `OwnPtr`/`RefPtr`, `HashMap`) rather than lean on the
 standard library.
 
-> **Status:** early. Milestone 1 (boot + serial + panic handler) is in progress.
-> Nothing builds yet.
+The long-term target is to **run Doom on it**, as a real user-mode process
+loaded off its own filesystem — not as a ring-0 blob with the WAD handed in by
+the bootloader. Getting there honestly means the whole OS underneath has to
+work first.
+
+> **Status:** early. The build system boots a kernel end to end (cross-compile →
+> Limine ISO → QEMU), but the kernel itself is barely started. Milestone 1
+> (boot + serial + panic handler) is in progress.
 
 ## Design
 
@@ -18,6 +24,13 @@ standard library.
 - **Bootloader:** Limine
 - **Error handling:** `ErrorOr<T>` / `TRY()`, in the style of SerenityOS
 - **Debug channel:** COM1 serial, read over QEMU's `-serial stdio`
+
+**No C++ standard library headers — not even `<cstdint>`.** The `x86_64-elf`
+cross-compiler is built `--without-headers` and ships none of libstdc++, so the
+only headers available are GCC's own C headers (`stdint.h`, `stddef.h`,
+`stdarg.h`, `limits.h`, `stdatomic.h`). Everything else — type traits, concepts,
+bit manipulation, containers — is hand-written in `lib/`, in the style of
+SerenityOS's `AK/`. This is the point of the exercise, not a workaround.
 
 Compiler flags:
 
@@ -39,14 +52,24 @@ paths), so the build works the same on macOS and Linux.
 
 ## Building & running
 
-Not yet wired up — see the roadmap below. The intended dev loop is:
-
 ```sh
-qemu-system-x86_64 -cdrom hobby-os.iso -serial stdio \
-    -d int -D qemu.log -no-reboot -no-shutdown
+cmake -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/x86_64-elf.cmake
+cmake --build build              # kernel.elf + hobby-os.iso
+cmake --build build --target run # boot it in QEMU, serial on stdio
 ```
 
-Add `-s -S` to have QEMU wait for GDB on port 1234.
+CMake fetches a pinned Limine release itself; there is nothing to install by
+hand beyond the prerequisites above. Interrupt traces land in `build/qemu.log`.
+
+For GDB, `--target debug` starts QEMU halted with a gdbserver on `:1234`:
+
+```sh
+cmake --build build --target debug   # one pane
+x86_64-elf-gdb build/kernel/kernel.elf -ex 'target remote :1234'
+```
+
+clangd picks up `build/compile_commands.json` on its own — no symlink needed,
+as long as the build directory is named `build/`.
 
 ## Roadmap
 
@@ -58,6 +81,8 @@ Add `-s -S` to have QEMU wait for GDB on port 1234.
    (concepts-constrained, move-semantics-correct)
 5. **Processes** — scheduler + context switch, user mode + syscalls
 6. **Later** — SMP, a simple filesystem, ELF loader
+7. **DOOM** — enable SSE/FPU, minimal libc shims, port `doomgeneric`'s six
+   `DG_*` hooks, and run it as a user-mode process off the filesystem
 
 ## Layout
 

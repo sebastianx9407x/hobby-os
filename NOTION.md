@@ -13,11 +13,14 @@ CONNECTED (2026-07-25) via the Notion MCP server, workspace "My Notion".
   - **Bug graveyard** — https://app.notion.com/p/3a845e1f36a981c1b094efa138e7eef7
 
 Schema: Name, Status (Backlog/Reading/Building/Blocked/Done), Type
-(Reading/Implementation/Debugging), Milestone (1–6), Resource (URL),
+(Reading/Implementation/Debugging), Milestone (1–7), Resource (URL),
 Notes (text), Parent item ↔ Sub-items (self-relation).
 
-All six milestones exist as parent items. Milestones 1 and 2 are broken into
-sub-items; 3–6 are stubs to fill in when they get close.
+All seven milestones exist as parent items. Milestones 1, 2, 4 and 7 are broken
+into sub-items; 3, 5 and 6 are stubs to fill in when they get close.
+
+Milestone 7 ("7 - DOOM", added 2026-08-08) is the north-star capstone — see the
+Goal section of CLAUDE.md. It comes after 1–6, not instead of them.
 
 ## Division of responsibility
 
