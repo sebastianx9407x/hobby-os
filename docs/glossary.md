@@ -56,6 +56,20 @@ and `+1`, which are only reachable when the DLAB bit in the LCR is set. Same
 ports meaning different things depending on a bit elsewhere — the part of the
 OSDev page worth reading twice.
 
+**Serial output is a latency hazard** — at 115200 baud, 8N1 is 10 bits per
+character, so `115200/10` = 11,520 chars/sec ≈ **87µs per character**. An
+80-character line is roughly **7ms** of busy-wait polling on LSR bit 5. If any
+of that happens with interrupts disabled — a panic handler, a lock guard, an
+IRQ handler — that's a 7ms latency spike for the whole system. This is why real
+kernels buffer log output and flush it outside critical sections. Polling is
+still the right *first* implementation; just know the number before sprinkling
+debug prints into interrupt handlers.
+
+**Reporting a serial failure over serial** — the loopback self-test creates a
+chicken-and-egg: if init fails, the channel you'd use to say so is the broken
+one. The failure path has to go somewhere else (framebuffer, or a halt with a
+distinctive pattern). Worth deciding deliberately rather than discovering it.
+
 **DB-9 / DB-25** — the physical connectors. Pedantically the 9-pin is a *DE-9*
 (shell size E), but everyone says DB-9. The UART itself only produces logic
 levels; a separate line driver converts them to RS-232's ±12V. None of that
@@ -129,10 +143,47 @@ first in `.text` ran instead. `extern "C"` gives a symbol C linkage so the name
 is emitted verbatim. Does *not* change the calling convention on x86-64 SysV;
 only the symbol name. Decode with `x86_64-elf-c++filt`.
 
+**Linkage** — the question "can the linker match this name across translation
+units?" *Internal* linkage means the name is private to one TU; each TU that
+sees it gets its OWN separate entity that happens to share a spelling.
+*External* means the whole program shares one entity, so a call in one file
+resolves to a definition in another.
+Internal comes from: `static` at namespace scope, an anonymous namespace (the
+C++ idiom), and `const`/`constexpr` variables at namespace scope.
+Why it bit us: `static bool init_serial();` in a header gives every includer a
+private declaration nothing ever defines — `main.cpp` compiles, then fails to
+link, and `serial.cpp`'s `static` definition is a *different* entity that never
+connects to it. Two names, no relationship.
+Why `constexpr` constants in headers are still fine: every TU gets a private
+copy, but they're identical compile-time values so nothing can disagree. A
+non-const global in a header would give every TU its own *mutable* variable —
+same name, different storage.
+
 **`nm` output** — case is linkage, letter is section. `T`=global text,
 `t`=local text (static), `D`/`d`=initialized data, `B`/`b`=BSS, `R`/`r`=rodata,
 `U`=undefined. `nm -n` sorts by address; `nm -g` shows globals only. Mangled
 names starting `_ZL` are internal-linkage.
+
+**Reading `const` in pointer declarations** — `const` binds to whatever is
+immediately to its LEFT; with nothing to its left it binds rightward.
+
+    const char* p        // pointer to const char: chars locked, pointer moves
+    char* const p        // const pointer to char: pointer locked, chars mutable
+    const char* const p  // both locked
+
+So `const char* p` is the right cursor for walking a string: `++p` works because
+the pointer is mutable, and the text is protected because the chars are const.
+Writing it `char const* p` ("east const") means the same thing but makes the
+bind-leftward rule uniform.
+C++ lets you ADD const silently (you're giving up rights) but never REMOVE it —
+hence `char* p = someConstCharPtr;` is rejected. That matters here beyond
+principle: string literals live in `.rodata`, which the linker script maps
+read-only, so writing through such a pointer would fault.
+
+**Pointer vs pointee** — a `const char*` is an *address*; `*p` is the *byte at
+that address*. `++p` moves to the next character; `++c` on a `char` increments
+the letter ('a' → 'b'). Walking a string needs the cursor (the pointer) and the
+dereference (`*p`) as two separate things.
 
 **`void*` in C vs C++** — C implicitly converts `void*` to any object pointer;
 C++ does not. So Limine's `framebuffer->address` needs an explicit cast that
@@ -152,6 +203,18 @@ aliases, `#pragma once` for include guards. Better because they have types, obey
 scope, are visible to the debugger and clangd, and can't double-evaluate
 arguments. The preprocessor is still required for `#include`, conditional
 compilation, and `##`/`#`.
+
+**`enum class` is awkward for bit flags** — it deliberately blocks implicit
+integer conversion, which is exactly right for mutually exclusive values
+(register offsets) and painful for flags: no `&` to test, no `|` to combine,
+without a cast at every site. Register *offsets* suit `enum class`; register
+*bits* need either operator overloads per enum, or a generic `Flags<E>`
+template written once (deferred to `lib/`, milestone 4). Interim choice
+(2026-08-16): per-register namespaces of `constexpr uint8_t`, because the
+*naming* is what prevents bugs — `LineStatus::TransmitEmpty` vs
+`TransmitterIdle` catches what `0x20` vs `0x40` did not.
+One enum for all registers would be wrong regardless: bit 0 means data-ready in
+LSR, interrupt-enable in IER, DTR in MCR, and FIFO-enable in FCR.
 
 **Include guards** — the traditional form is `#ifndef`/`#define`/`#endif`. Name
 them after the path to avoid collisions (a collision makes the second header
@@ -220,6 +283,50 @@ Bones page targets the newer one.** Translation when reading the wiki: drop the
 `_ID` suffix, invoke `LIMINE_BASE_REVISION` standalone rather than assigning it,
 drop the argument to `_SUPPORTED`, and use revision 3 not 6. Decided to stay on
 the bundled header so the bootloader and header can't drift.
+
+---
+
+## Error handling
+
+**Why anything special is needed** — `-fno-exceptions` means a function that can
+fail has no `throw` to reach for. It needs to return failure in its type.
+
+**`std::expected<T, E>`** — C++23. Holds either a value or an error; you can't
+reach the value without acknowledging the error case. The standard library's
+version of what SerenityOS calls `ErrorOr<T>`. `<expected>` is a *library*
+header, so the cross-compiler doesn't ship it — hand-rolled in `lib/` like
+everything else. (Reminder of the general rule: language features are free,
+`std::` anything is not.)
+
+**Monadic operations** — `and_then(f)` calls `f` on the value and passes an
+error straight through; `transform(f)` maps the value and leaves the error
+alone; `or_else(f)` handles the error and leaves the value alone. Chaining these
+propagates errors **without a macro**.
+
+**`TRY()` and statement expressions** — Serenity's `TRY()` expands to a
+statement expression `({ ... })`, which is a **GNU extension, not standard
+C++**. That's the one thing that would force `CMAKE_CXX_EXTENSIONS ON`
+(`gnu++23` instead of `c++23`). Choosing monadic chaining avoids it entirely,
+which is why the project went that way (decided 2026-08-16).
+
+**Out-parameter** — a parameter the function writes to, so it can return two
+things at once: `bool try_read(uint8_t& out)` returns whether a byte arrived and
+puts the byte in `out`. The C answer to "return two values", needing no library
+support. Why it's a stopgap: the caller must declare an uninitialised variable
+first, the call site doesn't visibly show the argument is being modified (a
+pointer advertises it better — one reason Linux uses pointers everywhere), and
+it can't be chained. `Optional<T>` bundles both into one return value instead.
+
+**Sentinel-value bug** — using an in-band value to mean "nothing here", e.g.
+`uint8_t try_read()` returning `0` for failure. Breaks the moment the sentinel
+is also legal data, and `0x00` is a perfectly legal byte. This is the concrete
+argument for `Optional<T>`: the "no value" state lives *outside* the value's
+range instead of stealing part of it.
+
+**C++ has no `?` operator** — nothing like Rust's error-propagation operator is
+standardised, which is exactly why Serenity needs `TRY()` to be a macro. The
+tradeoff: long imperative sequences read worse as `and_then` chains (lambdas
+everywhere) than as linear early returns.
 
 ---
 

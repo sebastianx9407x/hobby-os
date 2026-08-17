@@ -1,46 +1,165 @@
-#include <arch/x86_64/io.h>
+#include <arch/x86_64/io.hpp>
+#include <arch/x86_64/serial.hpp>
 #include <stdint.h>
 
 // https://wiki.osdev.org/Serial_Ports
 
-constexpr uint16_t PORT = 0x3f8; // COM1
+namespace kernel::x86_64::serial {
 
-static int init_serial() {
-    outb(PORT + 1, 0x00); // Disable all interrupts
-    outb(PORT + 3, 0x80); // Enable DLAB (set baud rate divisor)
-    outb(PORT + 0, 0x01); // Set divisor to 1 (lo byte) 115200 baud
-    outb(PORT + 1, 0x00); //                  (hi byte)
-    outb(PORT + 3, 0x03); // 8 bits, no parity, one stop bit 8N1
-    outb(PORT + 2, 0xC7); // Enable FIFO, clear them, with 14-byte threshold
-    outb(PORT + 4, 0x0B); // IRQs enabled, RTS/DSR set
-    outb(PORT + 4, 0x1E); // Set in loopback mode, test the serial chip
-    outb(PORT + 0, 0xAE); // Test serial chip (send byte 0xAE and check if serial returns same byte)
+enum class Port : uint16_t { COM1 = 0x3F8 };
+
+enum class Register : uint16_t {
+    DataBuffer      = 0,
+    InterruptEnable = 1,
+    FifoControl     = 2,
+    LineControl     = 3,
+    ModemControl    = 4,
+    LineStatus      = 5,
+};
+
+namespace InterruptEnable {
+constexpr uint8_t None = 0x00;
+// constexpr uint8_t DataAvailable     = 0x01;
+// constexpr uint8_t TransmitterEmpty  = 0x02;
+// constexpr uint8_t LineStatusChange  = 0x04;
+// constexpr uint8_t ModemStatusChange = 0x08;
+} // namespace InterruptEnable
+
+namespace FifoControl {
+constexpr uint8_t Enable        = 0x01;
+constexpr uint8_t ClearReceive  = 0x02;
+constexpr uint8_t ClearTransmit = 0x04;
+// constexpr uint8_t DmaMode        = 0x08;
+// constexpr uint8_t Trigger1Byte   = 0x00;
+// constexpr uint8_t Trigger4Bytes  = 0x40;
+// constexpr uint8_t Trigger8Bytes  = 0x80;
+constexpr uint8_t Trigger14Bytes = 0xC0;
+} // namespace FifoControl
+
+namespace LineControl {
+// constexpr uint8_t DataBits5 = 0x00;
+// constexpr uint8_t DataBits6 = 0x01;
+// constexpr uint8_t DataBits7 = 0x02;
+constexpr uint8_t DataBits8 = 0x03;
+// constexpr uint8_t TwoStopBits  = 0x04;
+// constexpr uint8_t ParityEnable = 0x08;
+// constexpr uint8_t ParityEven   = 0x10;
+// constexpr uint8_t ParityStick  = 0x20;
+// constexpr uint8_t BreakEnable  = 0x40;
+constexpr uint8_t Dlab = 0x80;
+} // namespace LineControl
+
+namespace ModemControl {
+constexpr uint8_t Dtr      = 0x01;
+constexpr uint8_t Rts      = 0x02;
+constexpr uint8_t Out1     = 0x04;
+constexpr uint8_t Out2     = 0x08;
+constexpr uint8_t Loopback = 0x10;
+} // namespace ModemControl
+
+namespace LineStatus {
+constexpr uint8_t DataReady = 0x01;
+// constexpr uint8_t OverrunError   = 0x02;
+// constexpr uint8_t ParityError    = 0x04;
+// constexpr uint8_t FramingError   = 0x08;
+// constexpr uint8_t BreakInterrupt = 0x10;
+constexpr uint8_t TransmitEmpty = 0x20;
+// constexpr uint8_t TransmitterIdle = 0x40;
+// constexpr uint8_t FifoError       = 0x80;
+} // namespace LineStatus
+
+constexpr uint8_t BaudDivisorLow  = 0x01;
+constexpr uint8_t BaudDivisorHigh = 0x00;
+
+constexpr uint8_t LoopbackTestByte = 0xAE;
+
+constexpr uint16_t registerOf(Port port, Register reg) {
+    return static_cast<uint16_t>(port) + static_cast<uint16_t>(reg);
+}
+
+bool init_serial() {
+    outb(registerOf(Port::COM1, Register::InterruptEnable), InterruptEnable::None); // Disable all interrupts
+    outb(registerOf(Port::COM1, Register::LineControl), LineControl::Dlab);   // Enable DLAB (set baud rate divisor)
+    outb(registerOf(Port::COM1, Register::DataBuffer), BaudDivisorLow);       // Set divisor to 1 (lo byte) 115200 baud
+    outb(registerOf(Port::COM1, Register::InterruptEnable), BaudDivisorHigh); //                  (hi byte)
+    outb(registerOf(Port::COM1, Register::LineControl), LineControl::DataBits8); // 8 bits, no parity, one stop bit 8N1
+    outb(
+        registerOf(Port::COM1, Register::FifoControl),
+        FifoControl::Enable | FifoControl::ClearReceive | FifoControl::ClearTransmit | FifoControl::Trigger14Bytes
+    ); // Enable FIFO, clear them, with 14-byte threshold
+    outb(
+        registerOf(Port::COM1, Register::ModemControl),
+        ModemControl::Dtr | ModemControl::Rts | ModemControl::Out2
+    ); // IRQs enabled, RTS/DSR set
+    outb(
+        registerOf(Port::COM1, Register::ModemControl),
+        ModemControl::Rts | ModemControl::Out1 | ModemControl::Out2 | ModemControl::Loopback
+    );                                                                    // Set in loopback mode, test the serial chip
+    outb(registerOf(Port::COM1, Register::DataBuffer), LoopbackTestByte); // Test serial chip
 
     // Check if serial is faulty (i.e: not same byte as sent)
-    if (inb(PORT + 0) != 0xAE) {
-        return 1;
+    if (inb(registerOf(Port::COM1, Register::DataBuffer)) != LoopbackTestByte) {
+        return false;
     }
 
     // If serial is not faulty set it in normal operation mode
     // (not-loopback with IRQs enabled and OUT#1 and OUT#2 bits enabled)
-    outb(PORT + 4, 0x0F);
-    return 0;
+    outb(
+        registerOf(Port::COM1, Register::ModemControl),
+        ModemControl::Dtr | ModemControl::Rts | ModemControl::Out1 | ModemControl::Out2
+    );
+    return true;
 }
 
-int serial_received() { return inb(PORT + 5) & 1; }
+bool serialReceived() { return inb(registerOf(Port::COM1, Register::LineStatus)) & LineStatus::DataReady; }
 
-char read_serial() {
-    while (serial_received() == 0)
+uint8_t readSerial() {
+    while (!serialReceived())
         ;
 
-    return inb(PORT);
+    return inb(registerOf(Port::COM1, Register::DataBuffer));
 }
 
-int is_transmit_empty() { return inb(PORT + 5) & 0x20; }
+bool isTransmitBufferEmpty() { return inb(registerOf(Port::COM1, Register::LineStatus)) & LineStatus::TransmitEmpty; }
 
-void write_serial(char a) {
-    while (is_transmit_empty() == 0)
+void writeSerial(const uint8_t byte) {
+    while (!isTransmitBufferEmpty())
         ;
 
-    outb(PORT, a);
+    outb(registerOf(Port::COM1, Register::DataBuffer), byte);
 }
+
+bool tryRead(uint8_t& byte) {
+    if (serialReceived()) {
+        byte = inb(registerOf(Port::COM1, Register::DataBuffer));
+        return true;
+    }
+    return false;
+}
+
+bool tryWrite(const uint8_t byte) {
+    if (isTransmitBufferEmpty()) {
+        outb(registerOf(Port::COM1, Register::DataBuffer), byte);
+        return true;
+    }
+    return false;
+}
+
+void print(const char* string) {
+    if (string == nullptr) {
+        print("(null)");
+        return;
+    }
+
+    for (const char* p = string; *p != '\0'; ++p) {
+        writeSerial(*p);
+    }
+}
+
+void println(const char* string) {
+    print(string);
+    writeSerial('\r');
+    writeSerial('\n');
+}
+
+} // namespace kernel::x86_64::serial

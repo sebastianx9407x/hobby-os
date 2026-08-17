@@ -1,7 +1,10 @@
 #include <limine.h>
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include <arch/x86_64/serial.hpp>
 
 __attribute__((used, section(".limine_requests"))) static volatile LIMINE_BASE_REVISION(3);
 
@@ -30,12 +33,17 @@ static void hcf(void) {
 // If renaming kmain() to something else, make sure to change the
 // linker script accordingly.
 extern "C" void kmain(void) {
+    kernel::x86_64::serial::init_serial();
+    kernel::x86_64::serial::println("QEMU has entered kmain");
+
     if (LIMINE_BASE_REVISION_SUPPORTED == false) {
+        kernel::x86_64::serial::println("kmain: LIMINE_BASE_REVISION_SUPPORTED == false");
         hcf();
     }
 
     // Ensure we got a framebuffer.
     if (framebuffer_request.response == nullptr || framebuffer_request.response->framebuffer_count < 1) {
+        kernel::x86_64::serial::println("kmain: frame_buffer not accessed");
         hcf();
     }
 
@@ -52,6 +60,8 @@ extern "C" void kmain(void) {
             fb_ptr[y * (framebuffer->pitch / 4) + x] = (nY << 8) | nX;
         }
     }
+
+    kernel::x86_64::serial::println("kmain: first frame_buffer has been read");
 
     // We're done, just hang...
     hcf();

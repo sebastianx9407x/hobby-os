@@ -1,4 +1,5 @@
 # Build output
+.cache
 *.o
 *.d
 *.elf

@@ -11,13 +11,20 @@ CONNECTED (2026-07-25) via the Notion MCP server, workspace "My Notion".
     - Views: `Board` (Kanban, grouped by Status) and `By milestone` (table, grouped by Milestone)
   - **Reading log** — https://app.notion.com/p/3a845e1f36a9818ea1c4d7ea8c968c84
   - **Bug graveyard** — https://app.notion.com/p/3a845e1f36a981c1b094efa138e7eef7
+  - **Latency log** — https://app.notion.com/p/3be45e1f36a981219f52d34f4f6c7108
 
 Schema: Name, Status (Backlog/Reading/Building/Blocked/Done), Type
-(Reading/Implementation/Debugging), Milestone (1–7), Resource (URL),
-Notes (text), Parent item ↔ Sub-items (self-relation).
+(Reading/Implementation/Debugging/Benchmarking), Milestone (1–7),
+Resource (URL), Notes (text), Parent item ↔ Sub-items (self-relation).
 
-All seven milestones exist as parent items. Milestones 1, 2, 4 and 7 are broken
-into sub-items; 3, 5 and 6 are stubs to fill in when they get close.
+All seven milestones exist as parent items. Milestones 1, 2, 3, 4, 5 and 7 are
+broken into sub-items; 6 is a stub to fill in when it gets close.
+
+**Latency work (added 2026-08-16).** The low-latency design constraint in
+CLAUDE.md is cross-cutting, not its own milestone — latency tasks live under
+whichever milestone they belong to, tagged with the `Benchmarking` Type. The
+Latency log page is where measured numbers go over time (my words, my numbers);
+the task DB only tracks whether the measurement has been taken.
 
 Milestone 7 ("7 - DOOM", added 2026-08-08) is the north-star capstone — see the
 Goal section of CLAUDE.md. It comes after 1–6, not instead of them.

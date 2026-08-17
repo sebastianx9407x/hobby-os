@@ -10,6 +10,10 @@
 Learn OS internals by building. Secondary: sharpen modern C++ — hand-rolled
 container/utility library is a deliberate part of the project, not a chore.
 
+**Design constraint: aim for the lowest latency I can.** Not a feature bolted on
+later — it's a lens applied to every subsystem as it's built. See "Latency as a
+design constraint" below for what that actually commits me to.
+
 **North star: run Doom on this OS.** It is the capstone — milestone 7, attempted
 only after 1–6 are done. Not the shortest path to Doom, deliberately: a bare
 minimum port needs only milestones 1–4 and can run as a ring-0 blob with the
@@ -43,6 +47,15 @@ This is a learning project. I write the code, not you.
   and you jumping in with the answer takes that away.
   Wait until I ask. Me saying "I'm stuck on X" or "why does Y happen" is the
   signal to engage — a failing build on its own is not.
+- WHEN I DO ask you to look, aim at concepts, not mechanics. What I want:
+  "you used static where you shouldn't", "this leaks implementation detail
+  into the header", "that's the wrong C++ idiom for this", "this design won't
+  survive milestone 3". What I don't want: stale paths, typos, a filename I
+  renamed, a missing include — the build tells me those, and finding them is
+  mine.
+  The test isn't "will it compile" — a wrong bit mask or an inverted condition
+  compiles fine and is still worth flagging. The test is whether I've
+  misunderstood something, or just fat-fingered it.
 - When explaining, prefer "here's the concept + here's where to read more"
   over "here's the code." Assume I want to struggle with it productively.
 - RECORD WHAT YOU EXPLAIN. When I ask "what is X" / "what does Y mean" and you
@@ -59,25 +72,104 @@ This is a learning project. I write the code, not you.
 - Flags: -ffreestanding -fno-exceptions -fno-rtti -nostdlib -mno-red-zone -mcmodel=kernel
 - Bootloader: Limine (limine-cxx-template)
 - Dev loop: QEMU (-serial stdio -d int -D qemu.log -no-reboot -no-shutdown), GDB via -s -S
-- Reference codebase: SerenityOS (esp. AK/ library); use ErrorOr<T>/TRY() error style
-- Instrument as I go: rdtsc helpers early; after each subsystem works,
-  compare cost/design against Linux's version
+- Reference model: LINUX, for design and algorithms. (Changed 2026-08-16, was
+  "reference codebase: SerenityOS".) Linux is C, so this explicitly does NOT
+  mean copying its style — it means studying WHY it does what it does (buddy +
+  slab allocators, RCU, per-CPU data, softirq/workqueue deferral, CFS/EEVDF
+  scheduling, VFS layering, PREEMPT_RT), then implementing that design in
+  modern C++.
+  Where the two pull apart, C++ wins on implementation: RAII guards instead of
+  paired enter/exit calls, templates and concepts instead of macros,
+  Expected<T,E> instead of bare -ENOMEM returns, type-safe intrusive containers
+  instead of container_of. Learn the architecture from Linux; write the code the
+  way C++ should be written.
+  SerenityOS is demoted to an occasional reference — useful only as an existence
+  proof for C++ patterns in kernel space, not as the model to follow.
+- Build the C++ library surface myself, aggressively. This is a primary goal,
+  not a means to an end: every container, smart pointer, trait and utility I
+  hand-roll in lib/ is the point. Prefer writing it over working around needing
+  it. See milestone 4, which is deliberately broad.
+- Error handling: hand-rolled Expected<T, E> modelled on C++23 std::expected,
+  with monadic and_then / transform / or_else. (Changed 2026-08-16, was
+  SerenityOS ErrorOr<T>/TRY().) Reasons: std::expected is the standard
+  vocabulary so it transfers to hosted C++; monadic chaining needs no macro, so
+  no statement expressions and CMAKE_CXX_EXTENSIONS stays OFF. <expected> is a
+  library header the cross-compiler doesn't ship, so it gets written in lib/
+  like everything else.
+  Known tradeoff: without a `?` operator, long imperative sequences read worse
+  as and_then chains than as TRY() early-returns. If that becomes painful,
+  adding a TRY()-style macro on top is a deliberate re-decision, not a drift.
+- Instrument as I go: rdtsc helpers early; after each subsystem works, compare
+  cost AND design against Linux's version, and write down what differs and why.
+  This is the main feedback loop for the "reference model: Linux" decision —
+  it's how the comparison actually happens rather than staying aspirational.
 - Cross-compiler referenced by name on PATH (no hardcoded absolute paths),
   so the build works identically on macOS now and Linux later
 
 ## Roadmap
 
 1. Boot via Limine → framebuffer text + COM1 serial + panic handler + own GDT,
-   .init_array walking, runtime stubs (\_\_cxa_pure_virtual, memcpy/memset) ← current
-2. IDT, exception handlers, APIC, timer + keyboard interrupts
-3. Physical frame allocator → paging → heap; overload operator new/delete
-4. Own mini-std: Vector, String, OwnPtr/RefPtr, HashMap (concepts-constrained,
-   move-semantics-correct)
-5. Scheduler + context switch, user mode + syscalls
+   .init_array walking, runtime stubs (\_\_cxa_pure_virtual, memcpy/memset),
+   rdtsc timing helpers ← current
+2. IDT, exception handlers, APIC, timer + keyboard interrupts.
+   Latency: APIC one-shot over periodic PIT; top/bottom-half split; measure
+   IRQ-to-handler latency
+3. Physical frame allocator → paging → heap; overload operator new/delete.
+   Latency: bounded worst-case allocation, measured — not just good average
+4. Own mini-std — deliberately broad, this is a primary goal not a support task.
+   Core: Types, TypeTraits, Concepts, Expected<T,E>, Optional, Span, Array,
+   Vector, String/StringView, OwnPtr/RefPtr, HashMap, IntrusiveList, Bitmap,
+   RingBuffer, Function, Atomic wrappers, a type-safe format/print.
+   All concepts-constrained and move-semantics-correct.
+   NOTE: lib/ is not gated to this milestone — pieces get built when first
+   needed (Expected in 1, Bitmap in 3, RingBuffer for buffered serial output).
+   Milestone 4 is the deliberate push to fill the gaps, not the starting line.
+5. Scheduler + context switch, user mode + syscalls.
+   Latency: preemptible kernel, measure scheduling jitter and syscall cost
 6. Later: SMP, simple FS, ELF loader
 7. DOOM (the north star, after 1–6): enable SSE/FPU + save state on context
    switch, minimal libc shims, WAD off my FS, port doomgeneric's six DG\_\* hooks,
    run it as a user-mode process via the ELF loader
+
+## Latency as a design constraint (added 2026-08-16)
+
+**Scope: low latency, not hard real-time.** I want small and *bounded* response
+times, measured. I am NOT promising provable deadlines — no WCET analysis, no
+static priority ceilings, no ban on dynamic allocation. If I ever want true hard
+real-time, that's a different OS and a deliberate re-scope, not a drift.
+
+Rules, in priority order:
+
+1. **Measure before claiming.** A subsystem isn't done until I have a number for
+   it. The rdtsc helpers in "Stack & decisions" exist for this — build them in
+   milestone 1, not when I finally care.
+2. **Bounded worst case beats good average.** An allocator with O(1) worst case
+   wins over a faster-on-average one that occasionally stalls. Latency is a
+   tail-percentile problem; the mean is nearly useless.
+3. **Interrupts-disabled windows are the enemy.** Every `cli` region adds
+   latency to everything else in the system. Keep the RAII guards short, and
+   know roughly how long each one is.
+4. **Interrupt handlers stay short.** Acknowledge and defer. Top-half does the
+   minimum; real work happens in a bottom-half that can be preempted.
+5. **No unbounded work in interrupt context.** Already a convention — it's a
+   latency rule as much as a safety one. No allocation, no unbounded loops.
+6. **Prefer fine-grained timing hardware.** APIC timer one-shot / TSC-deadline
+   over a periodic PIT tick — better granularity and less tick jitter.
+7. **Preemptible kernel is the milestone-5 target.** It's the single biggest
+   latency lever and also the hardest thing here to get right. Design toward it
+   from the start rather than retrofitting.
+8. **Record numbers over time** so regressions are visible. A benchmark I ran
+   once and didn't write down is a benchmark I don't have.
+
+Honest tensions — where these collide, learning wins, but the cost gets measured
+and written down rather than waved away:
+
+- Latency vs throughput: more preemption points means more overhead.
+- Latency vs simplicity: a preemptible kernel is substantially harder to make
+  correct, and correctness comes first.
+
+Doom (milestone 7) doubles as the end-to-end latency workload: input-to-photon
+and frame pacing are exactly the thing this constraint is about.
 
 ## Keeping the plan in sync (do this without being asked)
 
@@ -135,7 +227,14 @@ of making that change, not a follow-up chore.
   (SUPPORTED_BASE_REVISION in common/protos/limine.c). Trunk describing a
   feature does NOT mean our pinned Limine has it. When it matters, check the
   source at our tag, or just test LIMINE_BASE_REVISION_SUPPORTED at boot.
-- SerenityOS source (AK/ and Kernel/) — C++ patterns to learn from, not copy
+- Linux — the reference model for design. Source at elixir.bootlin.com (fast
+  cross-referenced browsing). LWN.net for the "why": lwn.net/Kernel/Index/ is
+  the topic index. Books: Bovet & Cesati "Understanding the Linux Kernel",
+  Love "Linux Kernel Development" (gentler), Gorman "Understanding the Linux
+  Virtual Memory Manager" (for milestone 3).
+  Read for architecture and rationale, not style — it's C, and this is C++.
+- SerenityOS source (AK/ and Kernel/) — demoted 2026-08-16. Occasional
+  reference only, as an existence proof for C++ patterns in kernel space.
 - Intel SDM Vol 3 — authoritative for descriptor tables, paging, interrupts, MSRs
 - Philipp Oppermann's os.phil-opp.com — clear concept explanations (ignore the Rust)
 - "Writing a Simple Operating System from Scratch" (Nick Blundell PDF) — boot/early stages

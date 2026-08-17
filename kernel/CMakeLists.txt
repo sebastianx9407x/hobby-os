@@ -10,7 +10,7 @@ target_sources(
   PRIVATE main.cpp
           # arch/x86_64/gdt.cpp
           arch/x86_64/serial.cpp
-          arch/x86_64/io.h
+          arch/x86_64/io.hpp
           # arch/x86_64/panic.cpp arch/x86_64/boot.S
 )
 
