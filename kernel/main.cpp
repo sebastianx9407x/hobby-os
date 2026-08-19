@@ -1,50 +1,41 @@
 #include <limine.h>
 
+#include <arch/x86_64/serial.hpp>
+
+#include <console.hpp>
+#include <panic.hpp>
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-
-#include <arch/x86_64/serial.hpp>
-
-__attribute__((used, section(".limine_requests"))) static volatile LIMINE_BASE_REVISION(3);
 
 // The Limine requests can be placed anywhere, but it is important that
 // the compiler does not optimise them away, so, usually, they should
 // be made volatile or equivalent, _and_ they should be accessed at least
 // once or marked as used with the "used" attribute as done here.
+__attribute__((used, section(".limine_requests_start"))) static volatile LIMINE_REQUESTS_START_MARKER;
+
+__attribute__((used, section(".limine_requests"))) static volatile LIMINE_BASE_REVISION(3);
 
 __attribute__((used, section(".limine_requests"))) static volatile struct limine_framebuffer_request
     framebuffer_request = {.id = LIMINE_FRAMEBUFFER_REQUEST, .revision = 0, .response = nullptr};
 
-// Finally, define the start and end markers for the Limine requests.
-// These can also be moved anywhere, to any .c file, as seen fit.
-
-__attribute__((used, section(".limine_requests_start"))) static volatile LIMINE_REQUESTS_START_MARKER;
-
 __attribute__((used, section(".limine_requests_end"))) static volatile LIMINE_REQUESTS_END_MARKER;
-
-static void hcf(void) {
-    for (;;) {
-        asm("hlt");
-    }
-}
 
 // The following will be our kernel's entry point.
 // If renaming kmain() to something else, make sure to change the
 // linker script accordingly.
 extern "C" void kmain(void) {
     kernel::x86_64::serial::init_serial();
-    kernel::x86_64::serial::println("QEMU has entered kmain");
+    println("QEMU has entered kmain");
 
     if (LIMINE_BASE_REVISION_SUPPORTED == false) {
-        kernel::x86_64::serial::println("kmain: LIMINE_BASE_REVISION_SUPPORTED == false");
-        hcf();
+        panic("kmain: LIMINE_BASE_REVISION_SUPPORTED == false");
     }
 
     // Ensure we got a framebuffer.
     if (framebuffer_request.response == nullptr || framebuffer_request.response->framebuffer_count < 1) {
-        kernel::x86_64::serial::println("kmain: frame_buffer not accessed");
-        hcf();
+        panic("kmain: frame_buffer not accessed");
     }
 
     // Fetch the first framebuffer.
@@ -61,8 +52,8 @@ extern "C" void kmain(void) {
         }
     }
 
-    kernel::x86_64::serial::println("kmain: first frame_buffer has been read");
+    println("kmain: first frame_buffer has been read");
 
     // We're done, just hang...
-    hcf();
+    panic("Nothing left to do, end of kmain");
 }

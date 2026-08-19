@@ -1,9 +1,11 @@
-#ifndef KERNEL_ARCH_X86_64_IO_H
-#define KERNEL_ARCH_X86_64_IO_H
+#ifndef KERNEL_ARCH_X86_64_IO_HPP
+#define KERNEL_ARCH_X86_64_IO_HPP
+
+#include <stdint.h>
 
 // https://wiki.osdev.org/Inline_Assembly/Examples
 
-#include <stdint.h>
+namespace kernel::x86_64::io {
 
 inline void outb(uint16_t port, uint8_t val) {
     __asm__ volatile("outb %b0, %w1" : : "a"(val), "Nd"(port) : "memory");
@@ -18,5 +20,7 @@ inline uint8_t inb(uint16_t port) {
     __asm__ volatile("inb %w1, %b0" : "=a"(ret) : "Nd"(port) : "memory");
     return ret;
 }
+
+} // namespace kernel::x86_64::io
 
 #endif

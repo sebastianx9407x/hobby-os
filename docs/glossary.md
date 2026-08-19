@@ -56,6 +56,19 @@ and `+1`, which are only reachable when the DLAB bit in the LCR is set. Same
 ports meaning different things depending on a bit elsewhere — the part of the
 OSDev page worth reading twice.
 
+**Synchronous code, asynchronous hardware** — with no scheduler and no
+interrupts, `kmain` is the only thing running, and `writeSerial` blocks it by
+spinning on the line status register. But the UART is genuinely asynchronous:
+once `outb` hands it a byte, the chip clocks that byte out bit by bit on its own
+while the CPU does something else. The CPU never waits for the *wire* — only for
+the holding register to free up.
+The FIFO decouples the two: 16 bytes can be handed over before the chip makes
+you wait, so short output (a `println("hello")`) never blocks at all. Stalling
+only begins once you outrun the FIFO.
+Making it asynchronous from the CPU's side means enabling the transmitter-empty
+bit in the IER, so the chip raises IRQ4 when it wants more — needs an IDT
+(milestone 2).
+
 **Serial output is a latency hazard** — at 115200 baud, 8N1 is 10 bits per
 character, so `115200/10` = 11,520 chars/sec ≈ **87µs per character**. An
 80-character line is roughly **7ms** of busy-wait polling on LSR bit 5. If any
@@ -229,6 +242,16 @@ back. `kernel/` and `lib/` are the `-I` roots, so a header at
 `kernel/arch/x86_64/io.h` is `<arch/x86_64/io.h>` — path-qualified angles, the
 same style SerenityOS uses. Adding deeper `-I` roots so bare `<io.h>` works
 would flatten the namespace and invite collisions.
+
+**Why headers aren't listed in `target_sources`** — headers are never compiled.
+Each `.cpp` is a translation unit that becomes a `.o`; a header is pasted into
+one by the preprocessor and produces nothing itself. Rebuild correctness is
+handled automatically: GCC's `-MD -MF` writes a depfile listing every header the
+TU pulled in, and Ninja reads it, so touching a header rebuilds its dependents
+without being listed anywhere. Listing headers affects only IDE project trees
+(Visual Studio, Xcode, Qt Creator show `target_sources` entries) — CMake
+recognises header extensions and skips them for compilation. Worth nothing in a
+terminal/nvim workflow.
 
 **clangd finds `compile_commands.json` by itself** — it checks both `<dir>/` and
 `<dir>/build/` while walking up from the file, so no symlink is needed as long

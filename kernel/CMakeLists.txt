@@ -8,9 +8,12 @@ set_target_properties(kernel PROPERTIES OUTPUT_NAME kernel.elf)
 target_sources(
   kernel
   PRIVATE main.cpp
+          console.cpp
+          panic.cpp
           # arch/x86_64/gdt.cpp
           arch/x86_64/serial.cpp
           arch/x86_64/io.hpp
+          arch/x86_64/cpu.hpp
           # arch/x86_64/panic.cpp arch/x86_64/boot.S
 )
 

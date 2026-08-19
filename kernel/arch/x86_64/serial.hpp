@@ -16,9 +16,5 @@ void writeSerial(const uint8_t byte);
 
 [[nodiscard]] bool tryWrite(const uint8_t byte);
 
-void print(const char* string);
-
-void println(const char* string);
-
 } // namespace kernel::x86_64::serial
 #endif

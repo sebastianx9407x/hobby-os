@@ -56,6 +56,11 @@ This is a learning project. I write the code, not you.
   The test isn't "will it compile" — a wrong bit mask or an inverted condition
   compiles fine and is still worth flagging. The test is whether I've
   misunderstood something, or just fat-fingered it.
+- DO NOT warn me about bugs I have not hit yet. No "watch out for X", no
+  "the classic mistake here is Y", no pre-emptive gotchas about the thing I am
+  about to write. Hitting it and working it out IS the learning; you naming it
+  in advance spends the lesson for me.
+  Answer what I asked and stop there.
 - When explaining, prefer "here's the concept + here's where to read more"
   over "here's the code." Assume I want to struggle with it productively.
 - RECORD WHAT YOU EXPLAIN. When I ask "what is X" / "what does Y mean" and you
@@ -103,6 +108,16 @@ This is a learning project. I write the code, not you.
   cost AND design against Linux's version, and write down what differs and why.
   This is the main feedback loop for the "reference model: Linux" decision —
   it's how the comparison actually happens rather than staying aspirational.
+- x86_64 ONLY. No portability abstraction layer (decided 2026-08-16). Portable
+  code may name arch namespaces directly — kernel/panic.cpp calling
+  x86_64::cpu::halt() is fine, not a leak. Rationale: the target domain is
+  low-latency fintech, which is overwhelmingly x86_64 and where tuning leans
+  INTO microarchitecture specifics (rdtscp/invariant TSC, cache-line size,
+  prefetch, NUMA, huge pages, core isolation). An abstraction over the CPU is
+  the thing that gets in the way there.
+  arch/ still exists, but now as an ORGANISATIONAL boundary: "this file
+  executes privileged instructions" vs "this file is pure logic". Not a
+  portability seam. Don't build kernel::arch::* contract headers.
 - Cross-compiler referenced by name on PATH (no hardcoded absolute paths),
   so the build works identically on macOS now and Linux later
 
