@@ -134,6 +134,42 @@ it. Needed for interrupt entry stubs (milestone 2) and context switch
 pushed. GCC's assembler defaults to **AT&T syntax** — operands reversed from the
 Intel SDM.
 
+**Extended asm syntax** — four sections separated by colons:
+
+    __asm__ volatile ( "template" : outputs : inputs : clobbers );
+
+Trailing sections can be dropped, but to reach a later one the empty earlier
+ones must still be written — hence `__asm__ volatile("cli" ::: "memory")`, three
+colons in a row for "no outputs, no inputs, one clobber".
+
+**The `"memory"` clobber** — tells the compiler *this instruction may read or
+write memory you cannot see*. Two consequences: it must not keep values cached
+in registers across this point, and it must not move memory accesses across it.
+
+It is a **compiler barrier, not a CPU barrier**. It emits no instruction and
+constrains only what GCC may reorder while generating code; the processor's own
+out-of-order execution is unaffected (that needs `mfence` and friends).
+
+Why `cli` needs it: `cli` opens a critical section, and the entire point is that
+loads and stores must not float out of that region. Without the clobber the
+compiler is free to hoist a memory access above the `cli` or sink one below the
+matching `sti`, silently moving work outside the protection. This becomes
+load-bearing for the RAII interrupt guards in Conventions, whose whole job is
+fencing a region.
+`hlt` does not need it — it touches no memory.
+
+**`volatile` vs the clobber** — `volatile` stops the asm being deleted or moved
+as a unit; the clobber constrains what may move *across* it. Different jobs.
+(GCC treats an asm with no outputs as implicitly volatile, but writing it is
+clearer.)
+
+**No builtins for `cli`/`sti`/`hlt`** — GCC ships `__builtin_ia32_pause` and
+`_mm_pause` but nothing for these, because they are **ring 0 only**: a userspace
+program executing them takes a general protection fault, and GCC's intrinsics
+target userspace. MSVC has `__disable()`/`__enable()`/`__halt()` because it
+compiles kernel-mode Windows drivers. So inline asm is the only route — same
+reason as `outb`/`inb`.
+
 **Red zone** — 128 bytes below `RSP` that leaf functions may use without
 adjusting the stack pointer. Interrupts push onto the same stack and would
 corrupt it, hence `-mno-red-zone`.

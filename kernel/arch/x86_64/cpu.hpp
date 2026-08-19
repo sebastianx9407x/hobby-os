@@ -3,7 +3,9 @@
 
 namespace kernel::x86_64::cpu {
 
-inline void cli() { __asm__ volatile("cli" : : : "memory"); }
+inline void cli() { __asm__ volatile("cli" : : : "memory"); } // Disable interrupts
+
+inline void sti() { __asm__ volatile("sti" : : : "memory"); } // Enable interrupts
 
 inline void hlt() { __asm__ volatile("hlt"); }
 
